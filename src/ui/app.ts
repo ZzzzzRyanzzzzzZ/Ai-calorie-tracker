@@ -179,17 +179,39 @@ function previewRow(item: ReturnType<typeof parseFoodLine>['items'][number]): HT
 }
 
 function foodEntryCard(): HTMLElement {
-  const parsed = ui.foodDraft.trim() ? parseFoodLine(ui.foodDraft) : null;
+  // Typing must never rebuild the page. An earlier version re-rendered
+  // everything on each keystroke, which replaced the textarea being typed into:
+  // focus was lost and, on a phone, the keyboard closed itself. So the preview
+  // and the button are the only things updated while someone types, and the
+  // textarea they are holding stays exactly where it is.
+  const preview = el('div', { class: 'preview empty' });
+  const addButton = el('button', { class: 'primary', disabled: true, onclick: () => commit() });
+  let parsed: ReturnType<typeof parseFoodLine> | null = null;
 
-  const textarea = el('textarea', {
-    placeholder: 'What did you eat? Plain English is fine: "2 rotis, a katori of dal and half a bowl of rice"',
-    'aria-label': 'Food eaten',
-    value: ui.foodDraft,
-    oninput: debounce((event: Event) => {
-      ui.foodDraft = (event.target as HTMLTextAreaElement).value;
-      render();
-    }, 220),
-  });
+  const refresh = (): void => {
+    parsed = ui.foodDraft.trim() ? parseFoodLine(ui.foodDraft) : null;
+    const resolvable = parsed?.items.filter((item) => !item.unresolved).length ?? 0;
+    addButton.disabled = resolvable === 0;
+    addButton.textContent = resolvable > 1 ? `Add ${resolvable} items` : 'Add';
+
+    clear(preview);
+    if (!parsed) {
+      preview.className = 'preview empty';
+      preview.textContent = 'Everything is worked out as you type, on this device. Nothing is sent anywhere.';
+      return;
+    }
+    preview.className = 'preview';
+    append(preview, [
+      parsed.expandedCombos.length > 0
+        ? el('p', { class: 'note' }, `Read "${parsed.expandedCombos.join('", "')}" as a full plate and split it into its parts.`)
+        : null,
+      parsed.items.map(previewRow),
+      el('div', { class: 'row spread', style: 'margin-top:8px' },
+        el('b', {}, `${parsed.total.kcal} kcal`),
+        el('span', { class: 'macros-inline' },
+          `P ${parsed.total.protein} · C ${parsed.total.carbs} · F ${parsed.total.fat}`)),
+    ]);
+  };
 
   const commit = (): void => {
     if (!parsed) return;
@@ -216,7 +238,26 @@ function foodEntryCard(): HTMLElement {
     render();
   };
 
-  const resolvable = parsed?.items.filter((item) => !item.unresolved).length ?? 0;
+  const textarea = el('textarea', {
+    placeholder: 'What did you eat? Plain English is fine: "2 rotis, a katori of dal and half a bowl of rice"',
+    'aria-label': 'Food eaten',
+    value: ui.foodDraft,
+    // Debounced only to keep parsing off the critical path on a slow phone;
+    // it no longer has anything to do with focus.
+    oninput: debounce((event: Event) => {
+      ui.foodDraft = (event.target as HTMLTextAreaElement).value;
+      refresh();
+    }, 120),
+  });
+
+  const useExample = (example: string): void => {
+    ui.foodDraft = example;
+    textarea.value = example;
+    refresh();
+    textarea.focus();
+  };
+
+  refresh();
 
   return el('section', { class: 'card' },
     el('h2', {}, 'Log food'),
@@ -227,27 +268,18 @@ function foodEntryCard(): HTMLElement {
           'Try: ',
           FOOD_EXAMPLES.slice(0, 3).map((example) => el('button', {
             class: 'link',
-            onclick: () => { ui.foodDraft = example; render(); },
+            onclick: () => useExample(example),
           }, example))),
         el('div', { class: 'row' },
           el('button', {
             class: 'ghost',
             onclick: () => { ui.tab = 'chat'; render(); },
           }, getApiKey() ? '📷 Photo' : '📷 Photo (needs a key)'),
-          el('button', { class: 'primary', disabled: resolvable === 0, onclick: commit },
-            resolvable > 1 ? `Add ${resolvable} items` : 'Add'))),
-      parsed
-        ? el('div', { class: 'preview' },
-          parsed.expandedCombos.length > 0
-            ? el('p', { class: 'note' }, `Read "${parsed.expandedCombos.join('", "')}" as a full plate and split it into its parts.`)
-            : null,
-          parsed.items.map(previewRow),
-          el('div', { class: 'row spread', style: 'margin-top:8px' },
-            el('b', {}, `${parsed.total.kcal} kcal`),
-            el('span', { class: 'macros-inline' },
-              `P ${parsed.total.protein} · C ${parsed.total.carbs} · F ${parsed.total.fat}`)))
-        : el('div', { class: 'preview empty' }, 'Everything is worked out as you type, on this device. Nothing is sent anywhere.')));
+          addButton)),
+      preview));
 }
+
+
 
 function foodEditor(entry: FoodEntry): HTMLElement {
   const gramsInput = el('input', { type: 'number', min: '1', step: '5', value: String(entry.grams), 'aria-label': 'Grams' });
@@ -316,7 +348,31 @@ function loggedFoods(): HTMLElement {
 function trainingCard(): HTMLElement {
   const day = currentDay();
   const weight = day.weightKg ?? state.profile.weightKg;
-  const parsed = ui.trainingDraft.trim() ? parseActivityLine(ui.trainingDraft, weight) : null;
+
+  // Same rule as the food box: while someone is typing, only the preview and
+  // the button change, so the textarea keeps focus and the keyboard stays up.
+  const preview = el('div', { class: 'preview empty' });
+  const addButton = el('button', { class: 'primary', disabled: true, onclick: () => commit() });
+  let parsed: ReturnType<typeof parseActivityLine> | null = null;
+
+  const refresh = (): void => {
+    parsed = ui.trainingDraft.trim() ? parseActivityLine(ui.trainingDraft, weight) : null;
+    const resolvable = parsed?.activities.filter((a) => !a.unresolved).length ?? 0;
+    addButton.disabled = resolvable === 0;
+
+    clear(preview);
+    if (!parsed) {
+      preview.className = 'preview empty';
+      preview.textContent = 'Times, distances and paces are read from what you write.';
+      return;
+    }
+    preview.className = 'preview';
+    append(preview, [parsed.activities.map((activity) => el('div', { class: `parsed${activity.unresolved ? ' unresolved' : ''}` },
+      el('span', { class: 'amount' }, `${activity.minutes} min`),
+      el('span', { class: 'name' }, activity.unresolved ? `not recognised: ${activity.exerciseName}` : activity.exerciseName),
+      el('span', { class: 'kcal' }, activity.unresolved ? '—' : `${activity.kcalNet} kcal`),
+      el('div', { class: 'why' }, el('ul', {}, activity.notes.map((note) => el('li', {}, note))))))]);
+  };
 
   const commit = (): void => {
     if (!parsed) return;
@@ -342,35 +398,38 @@ function trainingCard(): HTMLElement {
     render();
   };
 
-  const resolvable = parsed?.activities.filter((a) => !a.unresolved).length ?? 0;
+  const textarea = el('textarea', {
+    placeholder: 'What did you do? "ran 5k in 27 min", "45 min gym, squats 5x5 at 60kg"',
+    'aria-label': 'Training done',
+    value: ui.trainingDraft,
+    oninput: debounce((event: Event) => {
+      ui.trainingDraft = (event.target as HTMLTextAreaElement).value;
+      refresh();
+    }, 120),
+  });
+
+  const useExample = (example: string): void => {
+    ui.trainingDraft = example;
+    textarea.value = example;
+    refresh();
+    textarea.focus();
+  };
+
+  refresh();
 
   return el('section', { class: 'card' },
     el('h2', {}, 'Log training'),
     el('div', { class: 'entry' },
-      el('textarea', {
-        placeholder: 'What did you do? "ran 5k in 27 min", "45 min gym, squats 5x5 at 60kg"',
-        'aria-label': 'Training done',
-        value: ui.trainingDraft,
-        oninput: debounce((event: Event) => {
-          ui.trainingDraft = (event.target as HTMLTextAreaElement).value;
-          render();
-        }, 220),
-      }),
+      textarea,
       el('div', { class: 'row spread' },
         el('div', { class: 'examples' },
           'Try: ',
           TRAINING_EXAMPLES.slice(0, 2).map((example) => el('button', {
             class: 'link',
-            onclick: () => { ui.trainingDraft = example; render(); },
+            onclick: () => useExample(example),
           }, example))),
-        el('button', { class: 'primary', disabled: resolvable === 0, onclick: commit }, 'Add')),
-      parsed
-        ? el('div', { class: 'preview' }, parsed.activities.map((activity) => el('div', { class: `parsed${activity.unresolved ? ' unresolved' : ''}` },
-          el('span', { class: 'amount' }, `${activity.minutes} min`),
-          el('span', { class: 'name' }, activity.unresolved ? `not recognised: ${activity.exerciseName}` : activity.exerciseName),
-          el('span', { class: 'kcal' }, activity.unresolved ? '—' : `${activity.kcalNet} kcal`),
-          el('div', { class: 'why' }, el('ul', {}, activity.notes.map((note) => el('li', {}, note)))))))
-        : null),
+        addButton),
+      preview),
     day.activities.length > 0
       ? el('div', { style: 'margin-top:14px' }, day.activities.map((entry) => (ui.editingActivity === entry.id
         ? activityEditor(entry, weight)

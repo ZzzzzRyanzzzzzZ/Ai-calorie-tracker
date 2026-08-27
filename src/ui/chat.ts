@@ -263,6 +263,9 @@ export function chatTab(
       : chat.messages.map(messageBubble),
     chat.pending ? el('div', { class: 'bubble model pending' }, 'Thinking…') : null);
 
+  // Once render has put the thread in the document, show its newest message.
+  queueMicrotask(() => { thread.scrollTop = thread.scrollHeight; });
+
   return [
     el('div', { class: 'row spread', style: 'margin-bottom:12px' },
       el('span', { class: 'badge' }, getModel()),
