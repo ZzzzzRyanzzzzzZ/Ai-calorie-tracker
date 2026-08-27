@@ -129,6 +129,39 @@ a bedroom. If a pattern is impossible — there is no vertical pull without a ba
 The rotation advances by what you have logged, not by the calendar, so a missed
 Tuesday shifts the week rather than losing a session.
 
+### Talk to it, or show it a photo
+
+![The assistant logging a meal, with the tool call it made shown underneath](docs/assistant.png)
+
+There is an optional assistant tab. Say "I had 2 rotis and a katori of dal for
+lunch" and it logs it. Ask "what should I train today" and it reads your own
+plan back. Photograph your plate and it works out what is on it.
+
+This is the one part of the app that is not offline: it uses Google's Gemini
+API with **a key you supply**, stored in your browser and nowhere else. There is
+no key in this repository and there never will be. Without one, every other
+feature works exactly as before.
+
+The design rule that makes it trustworthy: **the model never supplies a
+number.** It decides which tool to call and with what words; the local database
+supplies the calories. Tell it you ate two rotis and it calls
+`log_food("2 rotis")` — the same parser and the same food table the typed
+interface uses. Ask a language model to estimate calories directly and it will
+confidently invent them, so it is never asked to. The photo path works the same
+way: vision identifies "two rotis, a katori of rajma, about a cup of rice", and
+the database prices it.
+
+Every tool call it makes is printed under the reply, so you can see it logged
+two rotis and not twenty.
+
+### Logging from memory, with no network at all
+
+Most people eat the same twenty meals. After a fortnight, the fastest input in
+the app is a row of buttons showing the portions you log most often, ranked by
+frequency with a half-life decay so a habit outranks a one-off but a dropped
+habit fades. There is also a "repeat yesterday's dinner" button. No typing, no
+key, no network.
+
 ### Honest arithmetic on training burn
 
 Running is not one number. Costing a run at a flat MET makes a 7 km/h jog and a
@@ -154,7 +187,7 @@ Then open the printed URL. Everything is client-side; there is nothing else to
 start.
 
 ```bash
-npm test         # 86 tests
+npm test         # 116 tests
 npm run build    # production bundle into dist/
 npm run typecheck
 ```
@@ -188,7 +221,11 @@ src/
     energy.ts        BMR, TDEE, targets, macro split
     adaptive.ts      Measuring real maintenance from weight and intake
     coach.ts         What to train today, and what you have been avoiding
+    history.ts       Ranking your own past portions for one-tap logging
     store.ts         localStorage, export, import
+  ai/
+    tools.ts         What the assistant may do; every number comes from core/
+    gemini.ts        The only network call in the project, and it is optional
   data/
     foods.ts         218 foods, per 100 g as eaten
     exercises.ts     METs, with speed bands for paced activities
@@ -197,16 +234,21 @@ src/
   cli/               The terminal front end
 ```
 
-No runtime dependencies. TypeScript, Vite and Vitest are the only dev ones.
+No runtime dependencies, and no SDK for the assistant either - it is one
+`fetch` against a documented REST endpoint. TypeScript, Vite and Vitest are the
+only dev dependencies.
 
 ### The tests are the interesting part
 
-86 of them, and several are checks on the data rather than the code. One
+116 of them, and several are checks on the data rather than the code. One
 recomputes every food's energy from its own macros using Atwater factors and
 fails if any row disagrees by more than a quarter — which is how you catch a
 typo in 218 hand-entered rows. Another feeds the maintenance estimator a
 synthetic log with realistic water-weight noise and asserts it recovers the true
-maintenance calories that generated it.
+maintenance calories that generated it. The assistant's tools are tested without
+a network or an API key at all, because they are plain functions over the store:
+one test asserts that logging "2 rotis and a katori of dal" through the
+assistant produces byte-for-byte the same 392 kcal the typed interface does.
 
 ---
 
@@ -221,6 +263,9 @@ maintenance calories that generated it.
   Weighing your rice for one week teaches you more than any tracker will.
 - **The maintenance estimate needs about two weeks** of near-daily weights and
   honest logging before it beats the formula. It says so until then.
+- **The assistant costs money and needs a key**, and photo recognition is a
+  guess: it is good at "that is a plate of rajma chawal" and bad at "that is
+  180 g of rajma". Correct the portion when it matters.
 - Not medical advice. If you have a condition that makes any of this matter
   medically, talk to a doctor rather than a static web page.
 

@@ -29,10 +29,17 @@ import type {
   Profile,
 } from '../core/types.ts';
 import { FOODS } from '../data/foods.ts';
+import { getApiKey } from '../ai/gemini.ts';
+import type { ToolContext } from '../ai/tools.ts';
+import { kcalOf, lastMealOf, suggestItems } from '../core/history.ts';
+import { type ChatState, chatTab, emptyChat } from './chat.ts';
 import { intakeChart, weightChart } from './charts.ts';
 import { append, clear, debounce, el, formatDate, formatNumber, shiftDate } from './dom.ts';
 
-type Tab = 'today' | 'coach' | 'trends' | 'profile';
+type Tab = 'today' | 'chat' | 'coach' | 'trends' | 'profile';
+
+/** A tab is a list of cards, some of which may not apply today. */
+type Section = HTMLElement | null;
 
 const MEAL_ORDER: MealSlot[] = ['breakfast', 'lunch', 'snack', 'dinner'];
 const MEAL_LABELS: Record<MealSlot, string> = {
@@ -65,6 +72,7 @@ interface UiState {
   editingFood: string | null;
   editingActivity: string | null;
   message: string | null;
+  chat: ChatState;
 }
 
 let state: StoreState = load();
@@ -76,6 +84,7 @@ const ui: UiState = {
   editingFood: null,
   editingActivity: null,
   message: null,
+  chat: emptyChat(),
 };
 
 function persist(): void {
@@ -86,6 +95,11 @@ function persist(): void {
 
 function currentDay(): DayLog {
   return dayOf(state, ui.date);
+}
+
+/** What the assistant's tools operate on. Read fresh each turn. */
+function toolContext(): ToolContext {
+  return { state, today: todayIso(), hour: new Date().getHours() };
 }
 
 function plan() {
@@ -215,8 +229,13 @@ function foodEntryCard(): HTMLElement {
             class: 'link',
             onclick: () => { ui.foodDraft = example; render(); },
           }, example))),
-        el('button', { class: 'primary', disabled: resolvable === 0, onclick: commit },
-          resolvable > 1 ? `Add ${resolvable} items` : 'Add')),
+        el('div', { class: 'row' },
+          el('button', {
+            class: 'ghost',
+            onclick: () => { ui.tab = 'chat'; render(); },
+          }, getApiKey() ? '📷 Photo' : '📷 Photo (needs a key)'),
+          el('button', { class: 'primary', disabled: resolvable === 0, onclick: commit },
+            resolvable > 1 ? `Add ${resolvable} items` : 'Add'))),
       parsed
         ? el('div', { class: 'preview' },
           parsed.expandedCombos.length > 0
@@ -423,6 +442,58 @@ function weightCard(): HTMLElement {
     el('p', { class: 'note' }, 'Weigh yourself after the toilet, before eating. Day to day it is mostly water; the trend line is the part that means something.'));
 }
 
+/**
+ * One-tap logging from your own history.
+ *
+ * After a fortnight this is the fastest input in the app, and it needs no
+ * network, no key and no typing: most people eat the same twenty meals, so the
+ * portions they log most often are almost always the ones they want next.
+ */
+function quickLogCard(): HTMLElement | null {
+  const iso = todayIso();
+  const meal = mealForHour(new Date().getHours());
+  const suggestions = suggestItems(state, iso, { meal, limit: 6 });
+  const previous = lastMealOf(state, ui.date, meal);
+  if (suggestions.length === 0 && !previous) return null;
+
+  const addEntries = (entries: { foodId: string; foodName: string; grams: number; amountLabel: string; nutrients: FoodEntry['nutrients']; confidence?: number }[]): void => {
+    const day = currentDay();
+    for (const entry of entries) {
+      day.foods.push({
+        id: newId(),
+        text: entry.foodName,
+        foodId: entry.foodId,
+        foodName: entry.foodName,
+        grams: entry.grams,
+        amountLabel: entry.amountLabel,
+        nutrients: entry.nutrients,
+        confidence: entry.confidence ?? 1,
+        meal,
+        at: new Date().toISOString(),
+      });
+    }
+    persist();
+    render();
+  };
+
+  return el('section', { class: 'card' },
+    el('h2', {}, `Usual ${MEAL_LABELS[meal].toLowerCase()}`),
+    el('div', { class: 'chips' },
+      suggestions.map((suggestion) => el('button', {
+        class: 'chip',
+        onclick: () => addEntries([suggestion]),
+      },
+      el('b', {}, suggestion.foodName),
+      el('span', {}, ` ${suggestion.amountLabel} · ${suggestion.nutrients.kcal} kcal`)))),
+    previous
+      ? el('div', { style: 'margin-top:10px' },
+        el('button', {
+          class: 'ghost',
+          onclick: () => addEntries(previous.items),
+        }, `Repeat ${MEAL_LABELS[meal].toLowerCase()} from ${previous.date} (${kcalOf(previous.items)} kcal, ${previous.items.length} items)`))
+      : null);
+}
+
 function dateNav(): HTMLElement {
   const iso = todayIso();
   return el('div', { class: 'row spread', style: 'margin-bottom:16px' },
@@ -435,13 +506,13 @@ function dateNav(): HTMLElement {
     }, 'Next →'));
 }
 
-function todayTab(): HTMLElement[] {
-  return [dateNav(), summaryCard(), foodEntryCard(), loggedFoods(), trainingCard(), weightCard()];
+function todayTab(): Section[] {
+  return [dateNav(), summaryCard(), quickLogCard(), foodEntryCard(), loggedFoods(), trainingCard(), weightCard()];
 }
 
 /* ------------------------------------------------------------------ coach */
 
-function coachTab(): HTMLElement[] {
+function coachTab(): Section[] {
   const logs = Object.values(state.days);
   const result = coach(state.profile, logs, todayIso());
   const cards: HTMLElement[] = [];
@@ -493,7 +564,7 @@ function coachTab(): HTMLElement[] {
 
 /* ----------------------------------------------------------------- trends */
 
-function trendsTab(): HTMLElement[] {
+function trendsTab(): Section[] {
   const { plan: active, estimate } = plan();
   const records = dailyRecords(state);
   const cards: HTMLElement[] = [];
@@ -535,7 +606,7 @@ function field(label: string, control: HTMLElement): HTMLElement {
   return el('div', { class: 'field' }, el('label', {}, label), control);
 }
 
-function profileTab(): HTMLElement[] {
+function profileTab(): Section[] {
   const profile = state.profile;
   const update = <K extends keyof Profile>(key: K, value: Profile[K]): void => {
     profile[key] = value;
@@ -706,6 +777,7 @@ function download(filename: string, contents: string, type: string): void {
 
 const TABS: [Tab, string][] = [
   ['today', 'Today'],
+  ['chat', 'Assistant'],
   ['coach', 'Coach'],
   ['trends', 'Trends'],
   ['profile', 'You'],
@@ -724,9 +796,11 @@ function render(): void {
     }, label)));
 
   const body = ui.tab === 'today' ? todayTab()
-    : ui.tab === 'coach' ? coachTab()
-      : ui.tab === 'trends' ? trendsTab()
-        : profileTab();
+    : ui.tab === 'chat'
+      ? chatTab(ui.chat, toolContext, render, () => { persist(); })
+      : ui.tab === 'coach' ? coachTab()
+        : ui.tab === 'trends' ? trendsTab()
+          : profileTab();
 
   append(root, [
     el('header', { class: 'top' },
