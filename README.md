@@ -18,7 +18,7 @@ API key, no network call. It also tells you what to train today, and it works
 out your real maintenance calories from your own log instead of trusting a
 formula.
 
-🔗 **Live:** https://zzzzzryanzzzzzz.github.io/ai-calorie-tracker/
+🔗 **Live:** https://zzzzzryanzzzzzz.github.io/Ai-calorie-tracker/
 
 ![Logging a meal, with the parser showing exactly how it read every word](docs/today.png)
 
@@ -144,8 +144,8 @@ daily budget. Counting it twice is the most common way a tracker flatters you.
 ## Running it
 
 ```bash
-git clone https://github.com/ZzzzzRyanzzzzzZ/ai-calorie-tracker.git
-cd ai-calorie-tracker
+git clone https://github.com/ZzzzzRyanzzzzzZ/Ai-calorie-tracker.git
+cd Ai-calorie-tracker
 npm install
 npm run dev
 ```
