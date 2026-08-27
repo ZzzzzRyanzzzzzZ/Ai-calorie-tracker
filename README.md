@@ -34,7 +34,7 @@ and stop.
 
 Three things follow from taking that seriously:
 
-**The database is Indian-first.** 218 foods, over half of them Indian, stored as
+**The database is Indian-first.** 236 foods, over half of them Indian, stored as
 they are eaten — a curry with the oil already in it, because that is the only
 weight anyone can estimate. It knows a katori of dal is about 150 g, that one
 roti is 40 g and one idli is 45 g, and that "chole bhature" is a katori of chole
@@ -187,7 +187,7 @@ Then open the printed URL. Everything is client-side; there is nothing else to
 start.
 
 ```bash
-npm test         # 116 tests
+npm test         # 121 tests
 npm run build    # production bundle into dist/
 npm run typecheck
 ```
@@ -227,7 +227,7 @@ src/
     tools.ts         What the assistant may do; every number comes from core/
     gemini.ts        The only network call in the project, and it is optional
   data/
-    foods.ts         218 foods, per 100 g as eaten
+    foods.ts         236 foods, per 100 g as eaten
     exercises.ts     METs, with speed bands for paced activities
     workouts.ts      Movements by pattern, splits by training days
   ui/                The web app: vanilla TypeScript, no framework
@@ -240,7 +240,7 @@ only dev dependencies.
 
 ### The tests are the interesting part
 
-116 of them, and several are checks on the data rather than the code. One
+121 of them, and several are checks on the data rather than the code. One
 recomputes every food's energy from its own macros using Atwater factors and
 fails if any row disagrees by more than a quarter — which is how you catch a
 typo in 218 hand-entered rows. Another feeds the maintenance estimator a

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { diceSimilarity, phoneticFold, singular, tokenize, tokensMatch } from '../src/core/text.ts';
 import { parseAmount } from '../src/core/units.ts';
 import { expandCombos, parseFoodItem, parseFoodLine, splitItems } from '../src/core/parseFood.ts';
-import { matchFood } from '../src/core/match.ts';
+import { MATCH_THRESHOLD, matchFood } from '../src/core/match.ts';
 
 describe('phonetic folding', () => {
   it('collapses the transliterations of the same word', () => {
@@ -134,6 +134,34 @@ describe('matching foods', () => {
     expect(best?.ignoredWords).toContain('amma');
   });
 
+  it('knows the vegetables people actually cook', () => {
+    // Every one of these was missing, and each was silently matched to
+    // something else entirely before it was added.
+    expect(matchFood('tindori')[0]?.item.id).toBe('tindora');
+    expect(matchFood('tendli')[0]?.item.id).toBe('tindora');
+    expect(matchFood('karela')[0]?.item.id).toBe('karela');
+    expect(matchFood('turai')[0]?.item.id).toBe('turai');
+    expect(matchFood('arbi')[0]?.item.id).toBe('arbi');
+    expect(matchFood('kathal')[0]?.item.id).toBe('kathal');
+    expect(matchFood('sarson ka saag')[0]?.item.id).toBe('sarson-saag');
+    expect(matchFood('masoor dal')[0]?.item.id).toBe('masoor-dal');
+  });
+
+  it('will not pass an unknown word off as a similar-sounding one', () => {
+    // "tindori" is one vowel from "tandoori" and a completely different food.
+    // Before the guess threshold this matched Naan at 81% confidence.
+    const [best] = matchFood('bhutte ka kees');
+    expect(best?.guessed).toBe(true);
+    expect(best?.score ?? 0).toBeLessThan(MATCH_THRESHOLD);
+  });
+
+  it('does not let a connective in the middle of a phrase carry a match', () => {
+    // "ka" appears in "Sarson ka saag", and used to make any phrase
+    // containing it look like a recognised dish.
+    const [best] = matchFood('bhutte ka kees');
+    expect(best?.item.id).not.toBe('sarson-saag');
+  });
+
   it('refuses to guess at nonsense', () => {
     const [best] = matchFood('qwertyuiop');
     expect(best === undefined || best.score < 0.5).toBe(true);
@@ -181,6 +209,19 @@ describe('parsing a whole meal', () => {
     const item = parseFoodItem('1 plate of zzzxqq');
     expect(item.unresolved).toBe(true);
     expect(item.nutrients.kcal).toBe(0);
+  });
+
+  it('asks about a dish it does not know rather than logging the wrong one', () => {
+    const item = parseFoodItem('1 plate bhutte ka kees');
+    expect(item.unresolved).toBe(true);
+    expect(item.nutrients.kcal).toBe(0);
+    // The near misses are still offered, so it is one tap to correct.
+    expect(item.alternatives.length).toBeGreaterThan(0);
+  });
+
+  it('logs a vegetable that used to come back as bread', () => {
+    const line = parseFoodLine('roti, tindori');
+    expect(line.items.map((i) => i.foodId)).toEqual(['roti', 'tindora']);
   });
 
   it('explains every assumption it made', () => {

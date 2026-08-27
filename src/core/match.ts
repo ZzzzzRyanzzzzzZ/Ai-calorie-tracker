@@ -141,7 +141,12 @@ export function foodVocabulary(): Set<string> {
   const set = new Set<string>();
   for (const food of FOODS) {
     for (const name of [food.name, ...food.aliases]) {
-      for (const token of foldTokens(name)) set.add(token);
+      for (const token of foldTokens(name)) {
+        // A one or two letter fragment identifies nothing. Letting "ka" into
+        // the vocabulary made "bhutte ka kees" look like a known dish because
+        // one connective in the middle of it happened to appear in a name.
+        if (token.length > 2) set.add(token);
+      }
     }
   }
   vocabulary = set;
@@ -160,7 +165,23 @@ function candidates(): Candidate<Food>[] {
 export interface FoodMatch extends MatchResult<Food> {
   /** Words in the phrase that no food in the table has ever heard of. */
   ignoredWords: string[];
+  /**
+   * True when not one word in the phrase was a known food word, so this result
+   * came from fuzzy spelling alone and is a suggestion rather than an answer.
+   */
+  guessed: boolean;
 }
+
+/**
+ * How close a pure-spelling guess must be before it is treated as a real match.
+ *
+ * A word the table has never seen is usually a food that is genuinely missing,
+ * not a typo. Edit distance is happy to call "tindori" a misspelling of
+ * "tandoori" - one vowel apart, and a completely different dish - so a match
+ * found this way has to be near-exact before it is asserted. Anything less is
+ * demoted to a suggestion, and the person is asked instead of being told.
+ */
+const GUESS_THRESHOLD = 0.9;
 
 /**
  * Match a food phrase. Words that appear nowhere in the food table are dropped
@@ -178,8 +199,21 @@ export function matchFood(phrase: string, limit = 5): FoodMatch[] {
 
   // If nothing is recognisable, still try the original phrase: the fuzzy
   // scorer may find a near-miss spelling the vocabulary check rejected.
-  const query = kept.length > 0 ? kept.join(' ') : phrase;
-  return rank(query, candidates(), limit).map((result) => ({ ...result, ignoredWords: ignored }));
+  const guessed = kept.length === 0;
+  const query = guessed ? phrase : kept.join(' ');
+  const results = rank(query, candidates(), limit);
+
+  // A guess that is not near-certain is demoted below the acceptance
+  // threshold, so it is offered as "did you mean" rather than logged silently.
+  const confident = (results[0]?.score ?? 0) >= GUESS_THRESHOLD;
+  const penalty = guessed && !confident ? 0.5 : 1;
+
+  return results.map((result) => ({
+    ...result,
+    score: result.score * penalty,
+    ignoredWords: ignored,
+    guessed,
+  }));
 }
 
 /** Below this, we say we did not recognise the food rather than guess. */

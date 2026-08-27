@@ -48,6 +48,9 @@ export const FILLER_WORDS = new Set([
   'about', 'approx', 'around', 'roughly', 'ate', 'eat', 'had', 'having', 'i', 'today',
   'for', 'breakfast', 'lunch', 'dinner', 'snack', 'this', 'morning', 'evening',
   'night', 'was', 'were', 'is', 'and', 'also', 'then', 'just', 'only',
+  // Hindi and Urdu connectives, which carry no more meaning than "of" does.
+  'ka', 'ki', 'ke', 'aur', 'mein', 'me', 'se', 'wala', 'wali', 'thoda',
+  'thodi', 'khaya', 'khai', 'khaya', 'piya', 'liya', 'aaj', 'kal', 'maine',
 ]);
 
 /**
