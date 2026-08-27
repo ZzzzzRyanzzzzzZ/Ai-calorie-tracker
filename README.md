@@ -228,4 +228,7 @@ maintenance calories that generated it.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+**All rights reserved.** The source is public so it can be read and reviewed,
+but that is not a licence to reuse it: you may read it and run it locally to
+evaluate it, and nothing further without written permission. See
+[LICENSE](LICENSE) for the exact terms.
