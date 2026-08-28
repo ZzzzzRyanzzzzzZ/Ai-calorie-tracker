@@ -203,6 +203,21 @@ function updateProfile(args: Args, ctx: ToolContext): ToolResult {
     profile.trainingDays = Math.round(days);
     changes.push(`training ${Math.round(days)} days a week`);
   }
+  const level = str(args, 'level');
+  if (level && ['beginner', 'intermediate', 'advanced'].includes(level)) {
+    profile.level = level as Profile['level'];
+    changes.push(`training level is now ${level}`);
+  }
+  const emphasis = str(args, 'emphasis');
+  if (emphasis && ['balanced', 'abs', 'arms', 'chest', 'back', 'shoulders', 'legs', 'glutes'].includes(emphasis)) {
+    profile.emphasis = emphasis as Profile['emphasis'];
+    changes.push(`the programme now emphasises ${emphasis}`);
+  }
+  const volume = num(args, 'volume_bias');
+  if (volume !== undefined && volume >= -1 && volume <= 2) {
+    profile.volumeBias = Math.round(volume);
+    changes.push(`volume bias is now ${Math.round(volume)}`);
+  }
   const activity = str(args, 'activity');
   if (activity && ['sedentary', 'light', 'moderate', 'active', 'very-active'].includes(activity)) {
     profile.activity = activity as Profile['activity'];
@@ -450,6 +465,20 @@ export const TOOL_DECLARATIONS = [
         goal: { type: 'STRING', description: 'lose, maintain or gain.' },
         rate_kg_per_week: { type: 'NUMBER', description: 'Target rate of change; negative to lose.' },
         training_days: { type: 'NUMBER', description: 'Days a week they will train, 0 to 7.' },
+        level: {
+          type: 'STRING',
+          description: 'How experienced a lifter they are: beginner, intermediate or advanced. '
+            + 'Set this when they say the programme is too easy or too hard for them.',
+        },
+        emphasis: {
+          type: 'STRING',
+          description: 'A body part to give extra work to: balanced, abs, arms, chest, back, shoulders, legs or glutes. '
+            + 'Set it when they say they want to focus on something, e.g. "I want abs".',
+        },
+        volume_bias: {
+          type: 'NUMBER',
+          description: 'Extra working sets per exercise, -1 to 2. Use -1 when they are short of time.',
+        },
         activity: { type: 'STRING', description: 'sedentary, light, moderate, active or very-active.' },
         diet: { type: 'STRING', description: 'vegetarian, eggetarian, non-vegetarian or vegan.' },
         equipment: {

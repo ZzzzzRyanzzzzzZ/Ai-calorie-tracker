@@ -42,6 +42,9 @@ export const DEFAULT_PROFILE: Profile = {
   diet: 'vegetarian',
   units: 'metric',
   trainingDays: 3,
+  level: 'beginner',
+  emphasis: 'balanced',
+  volumeBias: 0,
   equipment: ['none'],
 };
 
@@ -69,6 +72,16 @@ export function migrate(raw: unknown): StoreState {
     if (!Array.isArray(state.profile.equipment) || state.profile.equipment.length === 0) {
       state.profile.equipment = ['none'];
     }
+    // Added after the first release, so old saved profiles will not have them.
+    if (!['beginner', 'intermediate', 'advanced'].includes(state.profile.level)) {
+      state.profile.level = DEFAULT_PROFILE.level;
+    }
+    const emphases = ['balanced', 'abs', 'arms', 'chest', 'back', 'shoulders', 'legs', 'glutes'];
+    if (!emphases.includes(state.profile.emphasis)) state.profile.emphasis = DEFAULT_PROFILE.emphasis;
+    if (typeof state.profile.volumeBias !== 'number' || Number.isNaN(state.profile.volumeBias)) {
+      state.profile.volumeBias = 0;
+    }
+    state.profile.volumeBias = Math.max(-1, Math.min(2, Math.round(state.profile.volumeBias)));
   }
   if (candidate.days && typeof candidate.days === 'object') {
     for (const [date, day] of Object.entries(candidate.days)) {

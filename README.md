@@ -117,11 +117,28 @@ a bedroom. If a pattern is impossible — there is no vertical pull without a ba
 — it substitutes rather than silently dropping your back from the programme.
 
 - **Splits** from 2 to 6 days a week, picked from how often you will train.
-- **Sets and reps** from your goal: heavier and lower for a bulk, more volume and
-  shorter rests for a cut.
+- **Intensity from experience, not just goal.** A beginner gets 3 x 8-10 at
+  RPE 7. An advanced lifter gets 5 x 4-6 at RPE 8.5 with three minutes' rest,
+  and harder movement variants: pistol squats instead of air squats, weighted
+  pull-ups instead of pull-ups, hanging leg raises instead of planks. Being
+  handed beginner work is the fastest way to make a strong person quit.
+- **One heavy lift per session**, then secondary work a rep band higher with a
+  set dropped and shorter rests. Four compounds all at five-by-five is a
+  two-hour session nobody recovers from.
+- **RPE on every set**, because "4 x 5" says nothing about effort and "4 x 5 @
+  RPE 8" says all of it.
+- **Emphasis**: pick abs, arms, chest, back, shoulders, legs or glutes and that
+  work is added to every session, after the main lifts so they are not done
+  tired. Ask for abs and you get a real core progression up to ab wheel
+  rollouts and L-sits — plus the honest note that whether they *show* is a
+  body-fat question the calorie target is already handling.
+- **Volume dial** from -1 to +2 sets per exercise, for the days you are short of
+  time or want more.
 - **Cardio** dosed to the goal, with the reasoning stated.
-- **Progression**: hit the top of the rep range on every set, add weight. That is
-  the only rule that reliably works, so it is the only one given.
+- **Progression**: double progression on RPE. Work up the rep range, and when
+  you hit the top on every set at the target effort, add load. The increment
+  shrinks as you get stronger, because an advanced lifter adding 5 kg a week
+  would be adding 260 kg a year.
 - **It reads your log** and says what you are avoiding: no strength work this
   week, nothing that looks like leg work in a fortnight, seven days without a
   rest day.
@@ -187,7 +204,7 @@ Then open the printed URL. Everything is client-side; there is nothing else to
 start.
 
 ```bash
-npm test         # 121 tests
+npm test         # 129 tests
 npm run build    # production bundle into dist/
 npm run typecheck
 ```
@@ -229,7 +246,7 @@ src/
   data/
     foods.ts         236 foods, per 100 g as eaten
     exercises.ts     METs, with speed bands for paced activities
-    workouts.ts      Movements by pattern, splits by training days
+    workouts.ts      68 movements by pattern and difficulty, splits by training days
   ui/                The web app: vanilla TypeScript, no framework
   cli/               The terminal front end
 ```
@@ -240,7 +257,7 @@ only dev dependencies.
 
 ### The tests are the interesting part
 
-121 of them, and several are checks on the data rather than the code. One
+129 of them, and several are checks on the data rather than the code. One
 recomputes every food's energy from its own macros using Atwater factors and
 fails if any row disagrees by more than a quarter — which is how you catch a
 typo in 218 hand-entered rows. Another feeds the maintenance estimator a

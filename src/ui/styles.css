@@ -514,3 +514,18 @@ footer.foot a { color: var(--text-dim); }
 }
 
 .card a { color: var(--accent); }
+
+.session-block .rpe { color: var(--text-dim); font-weight: 500; font-size: 13px; }
+.session-block .tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 650;
+  vertical-align: middle;
+}

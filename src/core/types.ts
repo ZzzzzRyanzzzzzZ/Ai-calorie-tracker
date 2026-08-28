@@ -39,6 +39,17 @@ export type ActivityLevel =
 
 export type Goal = 'lose' | 'maintain' | 'gain';
 
+/**
+ * How long someone has been training, which decides how hard the programme is
+ * allowed to be. A beginner grows on three sets of eight; someone with years
+ * behind them needs heavier work, more sets and harder movement variants, and
+ * is badly served by being handed bodyweight squats.
+ */
+export type TrainingLevel = 'beginner' | 'intermediate' | 'advanced';
+
+/** A body part to give extra work to, on top of a balanced programme. */
+export type Emphasis = 'balanced' | 'abs' | 'arms' | 'chest' | 'back' | 'shoulders' | 'legs' | 'glutes';
+
 export type DietPreference = 'vegetarian' | 'eggetarian' | 'non-vegetarian' | 'vegan';
 
 export interface Profile {
@@ -60,6 +71,15 @@ export interface Profile {
   units: UnitSystem;
   /** Days per week the person is willing to train. */
   trainingDays: number;
+  /** How advanced the training should be. */
+  level: TrainingLevel;
+  /** A body part to bias the programme towards. */
+  emphasis: Emphasis;
+  /**
+   * Extra working sets per exercise, -1 to +2, for someone who wants more or
+   * less volume than their level's default.
+   */
+  volumeBias: number;
   /** Equipment on hand, used by the coach. */
   equipment: Equipment[];
 }

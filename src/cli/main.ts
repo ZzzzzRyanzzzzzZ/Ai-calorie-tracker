@@ -67,6 +67,9 @@ function parseArgs(argv: string[]): Options {
       }
       case '--activity': options.profile.activity = next() as ActivityLevel; break;
       case '--days': options.profile.trainingDays = Number(next()); break;
+      case '--level': options.profile.level = next() as Profile['level']; break;
+      case '--emphasis': options.profile.emphasis = next() as Profile['emphasis']; break;
+      case '--volume': options.profile.volumeBias = Number(next()); break;
       case '--equipment': options.profile.equipment = next().split(',') as Equipment[]; break;
       default:
         if (arg.startsWith('-')) {
@@ -101,6 +104,9 @@ ${c.bold('Options')}
       --rate <kg/week>   Rate of change, negative to lose (default by goal)
       --activity <a>     sedentary, light, moderate, active, very-active
       --days <n>         Training days a week (default ${DEFAULT_PROFILE.trainingDays})
+      --level <l>        beginner, intermediate or advanced (default ${DEFAULT_PROFILE.level})
+      --emphasis <part>  abs, arms, chest, back, shoulders, legs or glutes
+      --volume <-1..2>   Extra working sets per exercise (default 0)
       --equipment <list> none,dumbbells,barbell,machines,bands,pullup-bar
 
 ${c.dim(`${FOODS.length} foods in the table. Nothing is sent anywhere.`)}
@@ -195,10 +201,11 @@ function showCoach(options: Options): void {
   if (plan.today) {
     process.stdout.write(`${c.bold(`Today: ${plan.today.name}`)} ${c.dim(`(${plan.today.estimatedMinutes} min)`)}\n`);
     for (const block of plan.today.blocks) {
-      process.stdout.write(`  ${pad(block.movement.name, 28)} ${c.accent(`${block.sets} x ${block.reps}`)}  ${c.dim(`rest ${block.restSeconds}s`)}\n`);
+      process.stdout.write(`  ${pad(block.movement.name, 28)} ${c.accent(`${block.sets} x ${block.reps} @ RPE ${block.rpe}`)}  ${c.dim(`rest ${block.restSeconds}s`)}\n`);
       process.stdout.write(c.dim(`      ${block.note}\n`));
     }
-    process.stdout.write(c.dim(`\n  ${progressionAdvice(plan.today.blocks[0]?.reps ?? '8-10', options.profile.goal)}\n`));
+    const first = plan.today.blocks[0];
+    if (first) process.stdout.write(c.dim(`\n  ${progressionAdvice(first, options.profile.level)}\n`));
   } else {
     process.stdout.write(`${c.bold('Today: rest')}\n  ${plan.todayReason}\n`);
   }

@@ -1,5 +1,5 @@
 import { estimateMaintenance } from '../core/adaptive.ts';
-import { coach, progressionAdvice } from '../core/coach.ts';
+import { coach, intensityNote, progressionAdvice } from '../core/coach.ts';
 import { ACTIVITY_LABELS, balanceFor, defaultRateFor, planFor } from '../core/energy.ts';
 import { mealForHour, parseFoodLine, recalculate } from '../core/parseFood.ts';
 import { parseActivityLine, recalculateActivity } from '../core/parseExercise.ts';
@@ -588,12 +588,20 @@ function coachTab(): Section[] {
           el('span', { class: 'badge' }, `about ${result.today.estimatedMinutes} min`)),
         el('p', { class: 'note' }, `${result.today.focus}. ${result.todayReason}`),
         el('div', { style: 'margin-top:10px' }, result.today.blocks.map((block) => el('div', { class: 'session-block' },
-          el('span', { class: 'move' }, block.movement.name),
-          el('span', { class: 'dose' }, `${block.sets} x ${block.reps}`),
+          el('span', { class: 'move' },
+            block.movement.name,
+            block.emphasisWork ? el('span', { class: 'tag' }, state.profile.emphasis) : null),
+          el('span', { class: 'dose' },
+            `${block.sets} x ${block.reps}`,
+            el('span', { class: 'rpe' }, ` @ RPE ${block.rpe}`)),
           el('span', { class: 'cue' }, block.note),
-          el('span', { class: 'rest' }, `Rest ${block.restSeconds}s between sets`)))),
-        el('p', { class: 'note' },
-          progressionAdvice(result.today.blocks[0]?.reps ?? '8-10', state.profile.goal)))));
+          el('span', { class: 'rest' },
+            `Rest ${block.restSeconds}s`,
+            block.intensityPct > 0 ? ` · around ${block.intensityPct}% of your one-rep max` : '')))),
+        el('p', { class: 'note' }, intensityNote(state.profile.level, state.profile.goal)),
+        result.today.blocks[0]
+          ? el('p', { class: 'note' }, progressionAdvice(result.today.blocks[0], state.profile.level))
+          : null)));
 
   cards.push(el('section', { class: 'card' },
     el('h2', {}, 'Cardio'),
@@ -746,6 +754,34 @@ function profileTab(): Section[] {
           }))
           : null,
         numberField('Training days a week', 'trainingDays'),
+        field('Training experience', el('select', {
+          onchange: (event: Event) => update('level', (event.target as HTMLSelectElement).value as Profile['level']),
+        },
+        el('option', { value: 'beginner', selected: profile.level === 'beginner' }, 'Beginner — under a year'),
+        el('option', { value: 'intermediate', selected: profile.level === 'intermediate' }, 'Intermediate — 1 to 3 years'),
+        el('option', { value: 'advanced', selected: profile.level === 'advanced' }, 'Advanced — 3 years or more'))),
+        field('Extra emphasis', el('select', {
+          onchange: (event: Event) => update('emphasis', (event.target as HTMLSelectElement).value as Profile['emphasis']),
+        }, ([
+          ['balanced', 'Balanced'],
+          ['abs', 'Abs and core'],
+          ['arms', 'Arms'],
+          ['chest', 'Chest'],
+          ['back', 'Back'],
+          ['shoulders', 'Shoulders'],
+          ['legs', 'Legs'],
+          ['glutes', 'Glutes'],
+        ] as [Profile['emphasis'], string][]).map(([value, label]) => el('option', {
+          value,
+          selected: profile.emphasis === value,
+        }, label)))),
+        field('Volume', el('select', {
+          onchange: (event: Event) => update('volumeBias', Number((event.target as HTMLSelectElement).value)),
+        },
+        el('option', { value: '-1', selected: profile.volumeBias === -1 }, 'Less — short on time'),
+        el('option', { value: '0', selected: profile.volumeBias === 0 }, 'Standard'),
+        el('option', { value: '1', selected: profile.volumeBias === 1 }, 'More — one extra set'),
+        el('option', { value: '2', selected: profile.volumeBias === 2 }, 'A lot — two extra sets'))),
         field('Diet', el('select', {
           onchange: (event: Event) => update('diet', (event.target as HTMLSelectElement).value as Profile['diet']),
         },

@@ -289,12 +289,95 @@ describe('the coach', () => {
     expect(coach({ ...profile, trainingDays: 1 }, [], '2026-01-07').week).toHaveLength(2);
   });
 
-  it('sets more reps for a cut and heavier sets for a bulk', () => {
-    const cutting = coach({ ...profile, goal: 'lose' }, [], '2026-01-07').today;
-    const bulking = coach({ ...profile, goal: 'gain' }, [], '2026-01-07').today;
-    expect(cutting?.blocks[0]?.reps).toBe('8-10');
-    expect(bulking?.blocks[0]?.reps).toBe('5-8');
-    expect(bulking?.blocks[0]?.sets).toBe(4);
+  it('gets heavier as the lifter gets more experienced', () => {
+    const at = (level: Profile['level']) =>
+      coach({ ...profile, level, goal: 'gain' }, [], '2026-01-07').today?.blocks[0];
+
+    const beginner = at('beginner');
+    const intermediate = at('intermediate');
+    const advanced = at('advanced');
+
+    expect(beginner?.reps).toBe('8-10');
+    expect(intermediate?.reps).toBe('6-8');
+    expect(advanced?.reps).toBe('4-6');
+
+    // More sets, harder effort and longer rests, in that order.
+    expect(advanced?.sets ?? 0).toBeGreaterThan(beginner?.sets ?? 0);
+    expect(advanced?.rpe ?? 0).toBeGreaterThan(beginner?.rpe ?? 0);
+    expect(advanced?.restSeconds ?? 0).toBeGreaterThan(beginner?.restSeconds ?? 0);
+    expect(advanced?.intensityPct ?? 0).toBeGreaterThan(beginner?.intensityPct ?? 0);
+  });
+
+  it('does not hand a strong person bodyweight squats', () => {
+    // The complaint that started this: "I am stronger than that".
+    const bodyweightOnly = { ...profile, equipment: ['none'] as Profile['equipment'] };
+    const beginner = coach({ ...bodyweightOnly, level: 'beginner' }, [], '2026-01-07').today;
+    const advanced = coach({ ...bodyweightOnly, level: 'advanced' }, [], '2026-01-07').today;
+
+    expect(beginner?.blocks[0]?.movement.id).toBe('bw-squat');
+    expect(advanced?.blocks[0]?.movement.id).toBe('pistol-squat');
+  });
+
+  it('keeps a beginner away from movements they cannot do yet', () => {
+    for (const session of coach({ ...profile, level: 'beginner', equipment: ['barbell', 'pullup-bar'] }, [], '2026-01-07').week) {
+      for (const block of session.blocks) {
+        expect(block.movement.level, block.movement.id).toBe(1);
+      }
+    }
+  });
+
+  it('takes only the first compound of a session heavy', () => {
+    const session = coach({ ...profile, level: 'advanced', goal: 'gain', equipment: ['barbell'] }, [], '2026-01-07').today;
+    const compounds = session?.blocks.filter((b) => b.movement.compound) ?? [];
+    expect(compounds.length).toBeGreaterThan(1);
+    // Everything after the first backs off a set and moves up a rep band.
+    expect(compounds[0]?.reps).toBe('4-6');
+    expect(compounds[1]?.reps).toBe('6-8');
+    expect(compounds[1]?.sets ?? 0).toBeLessThan(compounds[0]?.sets ?? 0);
+    expect(session?.estimatedMinutes ?? 0).toBeLessThan(100);
+  });
+
+  it('builds the heavy lift around the best equipment available', () => {
+    // A loaded barbell progresses more easily than a leverage trick, so it
+    // should be the lift taken heavy when there is one in the room.
+    for (const session of coach({ ...profile, level: 'advanced', equipment: ['barbell', 'pullup-bar'] }, [], '2026-01-07').week) {
+      const heavy = session.blocks[0];
+      expect(heavy?.movement.equipment, session.name).toContain('barbell');
+    }
+  });
+
+  it('does not put a percentage of a one-rep max on bodyweight core work', () => {
+    const session = coach({ ...profile, emphasis: 'abs', equipment: ['pullup-bar'] }, [], '2026-01-07').today;
+    for (const block of session?.blocks ?? []) {
+      if (block.movement.pattern === 'core') expect(block.intensityPct, block.movement.id).toBe(0);
+    }
+  });
+
+  it('adds the emphasised work to every session', () => {
+    const plan = coach({ ...profile, emphasis: 'abs', equipment: ['pullup-bar'] }, [], '2026-01-07');
+    for (const session of plan.week) {
+      const core = session.blocks.filter((b) => b.movement.pattern === 'core');
+      expect(core.length, session.name).toBeGreaterThanOrEqual(2);
+      expect(session.blocks.some((b) => b.emphasisWork)).toBe(true);
+    }
+    // And it says plainly what training abs can and cannot do.
+    expect(plan.insights.some((i) => /body-fat/i.test(i.text))).toBe(true);
+  });
+
+  it('emphasis work comes after the main lifts, never before', () => {
+    const session = coach({ ...profile, emphasis: 'arms', equipment: ['dumbbells'] }, [], '2026-01-07').today;
+    const blocks = session?.blocks ?? [];
+    const firstEmphasis = blocks.findIndex((b) => b.emphasisWork);
+    const lastMain = blocks.map((b) => Boolean(b.emphasisWork)).lastIndexOf(false);
+    expect(firstEmphasis).toBeGreaterThan(lastMain);
+  });
+
+  it('lets someone ask for more or less volume', () => {
+    const standard = coach({ ...profile, volumeBias: 0 }, [], '2026-01-07').today?.blocks[0]?.sets ?? 0;
+    const more = coach({ ...profile, volumeBias: 2 }, [], '2026-01-07').today?.blocks[0]?.sets ?? 0;
+    const less = coach({ ...profile, volumeBias: -1 }, [], '2026-01-07').today?.blocks[0]?.sets ?? 0;
+    expect(more).toBe(standard + 2);
+    expect(less).toBe(standard - 1);
   });
 
   it('advances through the split as sessions get logged', () => {

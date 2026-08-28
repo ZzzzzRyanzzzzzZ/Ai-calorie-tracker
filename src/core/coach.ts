@@ -1,6 +1,6 @@
 import { MOVEMENTS, type Movement, type Pattern, SPLITS, type SessionTemplate } from '../data/workouts.ts';
 import { getExercise } from '../data/exercises.ts';
-import type { ActivityEntry, DayLog, Equipment, Goal, Profile } from './types.ts';
+import type { ActivityEntry, DayLog, Emphasis, Equipment, Goal, Profile, TrainingLevel } from './types.ts';
 
 /**
  * The coach: what to actually do today.
@@ -20,6 +20,16 @@ export interface PrescribedSet {
   reps: string;
   restSeconds: number;
   note: string;
+  /**
+   * Rate of perceived exertion to finish each set on, 1-10, where 10 is a set
+   * you could not have added a rep to. Telling someone "4 x 5" says nothing
+   * about effort; "4 x 5 @ RPE 8" is the part that actually drives the result.
+   */
+  rpe: number;
+  /** Percentage of a one-rep max the rep range roughly corresponds to. */
+  intensityPct: number;
+  /** Set when this movement is here because of the chosen emphasis. */
+  emphasisWork?: boolean;
 }
 
 export interface SessionPlan {
@@ -57,38 +67,166 @@ export interface CoachPlan {
 }
 
 /** Held positions are prescribed in seconds, everything else in reps. */
-const TIMED = new Set(['plank', 'side-plank', 'dead-bug']);
+const TIMED = new Set(['plank', 'side-plank', 'dead-bug', 'hollow-hold', 'l-sit']);
 
-/** Pick the best movement for a pattern given the equipment on hand. */
-export function chooseMovement(pattern: Pattern, equipment: Equipment[], exclude: Set<string> = new Set()): Movement | null {
+const LEVEL_NUMBER: Record<TrainingLevel, 1 | 2 | 3> = { beginner: 1, intermediate: 2, advanced: 3 };
+
+/**
+ * Pick the best movement for a pattern, given the equipment and how strong the
+ * person is.
+ *
+ * Difficulty is a tie-breaker, not a filter on its own: a loaded barbell squat
+ * beats a pistol squat for an advanced lifter who owns a barbell, because load
+ * is easier to progress than leverage. But with nothing but a floor, the harder
+ * variant is the only way to keep a strong person near failure in a sane number
+ * of reps, so it wins there.
+ */
+export function chooseMovement(
+  pattern: Pattern,
+  equipment: Equipment[],
+  exclude: Set<string> = new Set(),
+  level: TrainingLevel = 'beginner',
+): Movement | null {
   const have = new Set<Equipment>(equipment.length > 0 ? equipment : ['none']);
   have.add('none');
+  const ceiling = LEVEL_NUMBER[level];
+
   const options = MOVEMENTS
     .filter((m) => m.pattern === pattern && !exclude.has(m.id))
     .filter((m) => m.equipment.some((e) => have.has(e)))
-    .sort((a, b) => b.preference - a.preference);
-  return options[0] ?? null;
+    .filter((m) => m.level <= ceiling);
+
+  // Harder variants are worth up to two points of preference, and only to
+  // someone who has earned them.
+  const score = (m: Movement): number => m.preference + (ceiling >= 2 ? m.level - 1 : 0);
+  return options.sort((a, b) => score(b) - score(a))[0] ?? null;
 }
 
-/** Sets, reps and rest for one movement, given the goal. */
-function prescribe(movement: Movement, goal: Goal): PrescribedSet {
-  if (TIMED.has(movement.id)) {
-    return { movement, sets: 3, reps: '30-45 s', restSeconds: 45, note: movement.cue };
-  }
-  if (goal === 'gain') {
-    return movement.compound
-      ? { movement, sets: 4, reps: '5-8', restSeconds: 150, note: movement.cue }
-      : { movement, sets: 3, reps: '8-12', restSeconds: 90, note: movement.cue };
-  }
-  if (goal === 'lose') {
-    return movement.compound
-      ? { movement, sets: 3, reps: '8-10', restSeconds: 90, note: movement.cue }
-      : { movement, sets: 3, reps: '12-15', restSeconds: 60, note: movement.cue };
-  }
-  return movement.compound
-    ? { movement, sets: 3, reps: '6-10', restSeconds: 120, note: movement.cue }
-    : { movement, sets: 3, reps: '10-12', restSeconds: 75, note: movement.cue };
+/**
+ * Sets, reps, rest and effort for one movement.
+ *
+ * The rep range comes from the goal, but the *intensity* comes from experience.
+ * A beginner grows on three sets of eight taken a couple of reps shy of
+ * failure, and gets hurt chasing heavy singles. Someone with years behind them
+ * has to work far closer to their limit, on fewer reps and more sets, to make
+ * anything happen at all - which is why handing them "3 x 8-10 bodyweight
+ * squats" is not a small mistake, it is a wasted year.
+ */
+const NEXT_BAND: Record<string, string> = {
+  '4-6': '6-8',
+  '5-6': '6-8',
+  '6-8': '8-10',
+  '8-10': '10-12',
+  '10-12': '12-15',
+};
+
+/**
+ * Turn a heavy top-set scheme into the secondary work that follows it.
+ *
+ * Only the first big lift of a session should be taken near a limit. Four
+ * compounds at five sets of five with three minutes' rest is a two-hour
+ * session that nobody recovers from; every real programme runs one heavy lift
+ * and then backs off. This drops a set, moves up a rep band and shortens the
+ * rest, which is the difference between a session and an ordeal.
+ */
+function asSecondary(set: PrescribedSet): PrescribedSet {
+  return {
+    ...set,
+    sets: Math.max(3, set.sets - 1),
+    reps: NEXT_BAND[set.reps] ?? set.reps,
+    restSeconds: Math.round((set.restSeconds * 0.7) / 15) * 15,
+    rpe: Math.max(7, set.rpe - 0.5),
+    intensityPct: Math.max(55, set.intensityPct - 8),
+  };
 }
+
+function prescribe(movement: Movement, profile: Profile, emphasisWork = false): PrescribedSet {
+  const { goal, level } = profile;
+  const bias = Math.max(-1, Math.min(2, Math.round(profile.volumeBias ?? 0)));
+
+  if (TIMED.has(movement.id)) {
+    const seconds = level === 'advanced' ? '45-60 s' : level === 'intermediate' ? '40-50 s' : '30-45 s';
+    return {
+      movement,
+      sets: 3 + bias,
+      reps: seconds,
+      restSeconds: 45,
+      note: movement.cue,
+      rpe: 8,
+      intensityPct: 0,
+      ...(emphasisWork ? { emphasisWork } : {}),
+    };
+  }
+
+  // [sets, reps, rest seconds, RPE, rough % of one-rep max]
+  type Scheme = [number, string, number, number, number];
+
+  const compound: Record<TrainingLevel, Record<Goal, Scheme>> = {
+    beginner: {
+      gain: [3, '8-10', 120, 7, 72],
+      lose: [3, '8-10', 90, 7.5, 70],
+      maintain: [3, '8-10', 105, 7, 70],
+    },
+    intermediate: {
+      gain: [4, '6-8', 150, 8, 78],
+      lose: [4, '6-8', 120, 8, 76],
+      maintain: [4, '6-8', 135, 7.5, 75],
+    },
+    advanced: {
+      gain: [5, '4-6', 210, 8.5, 85],
+      lose: [4, '5-6', 180, 8.5, 82],
+      maintain: [5, '5-6', 180, 8, 82],
+    },
+  };
+
+  const accessory: Record<TrainingLevel, Record<Goal, Scheme>> = {
+    beginner: {
+      gain: [3, '10-12', 75, 8, 60],
+      lose: [3, '12-15', 60, 8, 55],
+      maintain: [3, '10-12', 75, 8, 58],
+    },
+    intermediate: {
+      gain: [3, '8-12', 90, 8.5, 65],
+      lose: [3, '12-15', 60, 8.5, 58],
+      maintain: [3, '10-12', 75, 8, 62],
+    },
+    advanced: {
+      gain: [4, '8-12', 90, 9, 68],
+      lose: [4, '10-15', 60, 9, 60],
+      maintain: [4, '8-12', 75, 8.5, 65],
+    },
+  };
+
+  const table = movement.compound ? compound : accessory;
+  const [sets, reps, rest, rpe, pct] = table[level][goal];
+
+  // Core work is rarely loaded, so a percentage of a one-rep max would be a
+  // number with nothing behind it.
+  const loadable = movement.pattern !== 'core';
+
+  return {
+    movement,
+    sets: Math.max(2, sets + bias),
+    reps,
+    restSeconds: rest,
+    note: movement.cue,
+    rpe,
+    intensityPct: loadable ? pct : 0,
+    ...(emphasisWork ? { emphasisWork } : {}),
+  };
+}
+
+/** Extra patterns added to every session when a body part is emphasised. */
+const EMPHASIS_PATTERNS: Record<Emphasis, Pattern[]> = {
+  balanced: [],
+  abs: ['core', 'core'],
+  arms: ['arms', 'arms'],
+  chest: ['horizontal-push'],
+  back: ['horizontal-pull', 'vertical-pull'],
+  shoulders: ['vertical-push'],
+  legs: ['squat', 'lunge'],
+  glutes: ['hinge', 'hinge'],
+};
 
 /**
  * What to train instead when the equipment cannot support a pattern.
@@ -109,18 +247,32 @@ const SUBSTITUTES: Partial<Record<Pattern, Pattern[]>> = {
 export function buildSession(template: SessionTemplate, profile: Profile): SessionPlan {
   const used = new Set<string>();
   const blocks: PrescribedSet[] = [];
-  for (const pattern of template.patterns) {
-    let movement = chooseMovement(pattern, profile.equipment, used);
+
+  let heavyDone = false;
+  const fill = (pattern: Pattern, emphasisWork: boolean): void => {
+    let movement = chooseMovement(pattern, profile.equipment, used, profile.level);
     if (!movement) {
       for (const fallback of SUBSTITUTES[pattern] ?? []) {
-        movement = chooseMovement(fallback, profile.equipment, used);
+        movement = chooseMovement(fallback, profile.equipment, used, profile.level);
         if (movement) break;
       }
     }
-    if (!movement) continue;
+    if (!movement) return;
     used.add(movement.id);
-    blocks.push(prescribe(movement, profile.goal));
-  }
+
+    const set = prescribe(movement, profile, emphasisWork);
+    // The first compound of the session is the one taken heavy.
+    if (movement.compound && !emphasisWork && !heavyDone) {
+      heavyDone = true;
+      blocks.push(set);
+    } else {
+      blocks.push(movement.compound ? asSecondary(set) : set);
+    }
+  };
+
+  for (const pattern of template.patterns) fill(pattern, false);
+  // Emphasis work goes last: the main lifts should not be done tired.
+  for (const pattern of EMPHASIS_PATTERNS[profile.emphasis ?? 'balanced']) fill(pattern, true);
   const estimatedMinutes = Math.round(
     blocks.reduce((sum, block) => sum + block.sets * (block.restSeconds + 45) / 60, 0) + 8,
   );
@@ -233,6 +385,14 @@ export function analyseTraining(logs: DayLog[], today: string, profile: Profile)
     insights.push({ level: 'warn', text: 'Nothing that looks like leg work in two weeks. Legs are half your muscle mass and most of your calorie burn.' });
   }
 
+  if (profile.emphasis === 'abs') {
+    insights.push({
+      level: 'tip',
+      text: 'Direct ab work is in every session now, and it will build the muscle. Whether it shows is a body-fat '
+        + 'question, not a training one - that is what the calorie target on the Today tab is doing.',
+    });
+  }
+
   const weighIns = recent.filter((log) => typeof log.weightKg === 'number').length;
   if (weighIns < 3) {
     insights.push({
@@ -301,12 +461,33 @@ export function coach(profile: Profile, logs: DayLog[], today: string): CoachPla
 }
 
 /**
- * Progression rule: hit the top of the rep range on every set and the weight
- * goes up next time. Simple, and it is the only thing that reliably works.
+ * How to add load, which is the only thing that makes a programme work.
+ *
+ * Double progression: work up the rep range at a fixed weight, and when the
+ * top of the range is reached on every set at the target effort, add load and
+ * start again at the bottom. The increment shrinks as someone gets stronger,
+ * because an advanced lifter adding 5 kg a week to a squat would be adding
+ * 260 kg a year, and nobody does that.
  */
-export function progressionAdvice(reps: string, goal: Goal): string {
-  const top = Number(reps.split('-')[1] ?? reps);
-  if (Number.isNaN(top)) return 'Add a few seconds to each hold once the last set stops being hard.';
-  const step = goal === 'gain' ? '2.5-5 kg' : '2.5 kg';
-  return `When you hit ${top} reps on every set with good form, add ${step} next session and start again at the bottom of the range.`;
+export function progressionAdvice(block: PrescribedSet, level: TrainingLevel = 'beginner'): string {
+  const top = Number(block.reps.split('-')[1] ?? block.reps);
+  if (Number.isNaN(top)) {
+    return `Hold each set to RPE ${block.rpe} - a couple of seconds short of shaking. Add time once the last set stops being hard.`;
+  }
+  const step = level === 'advanced' ? '1-2.5 kg' : level === 'intermediate' ? '2.5 kg' : '2.5-5 kg';
+  return `Take every set to about RPE ${block.rpe}: stop with ${Math.round(10 - block.rpe)} rep${10 - block.rpe === 1 ? '' : 's'} left in the tank. `
+    + `When you hit ${top} reps on all ${block.sets} sets at that effort, add ${step} next session and start again at the bottom of the range.`;
+}
+
+/** A sentence describing how hard the session is meant to be. */
+export function intensityNote(level: TrainingLevel, goal: Goal): string {
+  if (level === 'advanced') {
+    return goal === 'gain'
+      ? 'Heavy, low-rep work near 85% of your max. Long rests; the sets are supposed to be slow and unpleasant.'
+      : 'Heavy enough to hold onto strength while the deficit does the fat loss. Do not chase a pump instead of load.';
+  }
+  if (level === 'intermediate') {
+    return 'Six to eight hard reps, two shy of failure. This is the range where most people who already train make progress.';
+  }
+  return 'Leave two or three reps in reserve on every set. Technique first: the load will come faster than you expect.';
 }
